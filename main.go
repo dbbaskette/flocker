@@ -183,26 +183,25 @@ func twitterAuth() *twitter.Client {
 	return client
 }
 
-func relationMapper(friendIDs []int64, followerIDs []int64, id int64) map[int64]int{
+func relationMapper(rm map[int64]int, friendIDs []int64, followerIDs []int64, id int64) map[int64]int{
 
 	// For a given follower of the users, this will loop through all their followers and friends
 	// If someone is a follower and a friend they are a relation and get counted
 	
-	relationMap := make(map[int64]int)  
+	
 	relationCount := 0
 	for _, friendID := range friendIDs {
 		for _, followerID := range followerIDs {
 			if friendID == followerID {
-				relationCount = relationMap[friendID] + 1
-				relationMap[friendID] = relationCount
+				relationCount = rm[friendID] + 1
+				rm[friendID] = relationCount
 				
 			}
 
 		}
-		fmt.Printf("map[%d] = %d\n",friendID,relationCount)
 	}
 
-	return relationMap
+	return rm
 
 
 }
@@ -219,7 +218,7 @@ func main() {
 	fmt.Println(checkFileExists(basePath, twitterID, "followers"))
 
 	// NOW CREATE FOLLOWER FILES (limit to 5 temporarily)
-	runCount := 75
+	runCount := 150
 	followerIDs := readIDsFile(basePath, twitterID, "followers")
 	tmpCount1 := 0
 	for _, id := range followerIDs {
@@ -245,6 +244,7 @@ func main() {
 	var currentFollowerIDs []int64
 	var currentFriendIDs []int64
 	tmpCount1=0
+	relationMap := make(map[int64]int)  
 	for _, id := range followerIDs {
 		tmpCount1++
 
@@ -253,13 +253,18 @@ func main() {
 		currentFollowerIDs = readIDsFile(basePath, id, "followers")
 		currentFriendIDs = readIDsFile(basePath, id, "friends")
 
-		relationMapper(currentFriendIDs,currentFollowerIDs,id)
+		relationMap=relationMapper(relationMap,currentFriendIDs,currentFollowerIDs,id)
 
 		if tmpCount1 > runCount {
 			break
 		}
 	}
+	
+	for k,v := range relationMap{
 
+		fmt.Println(k,v)
+
+	}
 
 
 
