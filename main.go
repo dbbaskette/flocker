@@ -184,18 +184,22 @@ func twitterAuth() *twitter.Client {
 }
 
 func relationMapper(friendIDs []int64, followerIDs []int64, id int64) map[int64]int{
-	// Now, Check all friendIDs and check for that ID in the followers list. Store those as relations
-	relationMap := make(map[int64]int)
+
+	// For a given follower of the users, this will loop through all their followers and friends
+	// If someone is a follower and a friend they are a relation and get counted
+	
+	relationMap := make(map[int64]int)  
 	relationCount := 0
 	for _, friendID := range friendIDs {
 		for _, followerID := range followerIDs {
 			if friendID == followerID {
 				relationCount = relationMap[friendID] + 1
 				relationMap[friendID] = relationCount
-				fmt.Printf("MATCH - RELATION FOUND %i follows %i and they follow back\n",id, followerID)
+				
 			}
 
 		}
+		fmt.Printf("map[%d] = %d\n",friendID,relationCount)
 	}
 
 	return relationMap
@@ -244,7 +248,8 @@ func main() {
 	for _, id := range followerIDs {
 		tmpCount1++
 
-		//fmt.Println(getUsername(client, id))
+		// FOr each one of my followers get their follower and friend list and send to the mapper
+		
 		currentFollowerIDs = readIDsFile(basePath, id, "followers")
 		currentFriendIDs = readIDsFile(basePath, id, "friends")
 
