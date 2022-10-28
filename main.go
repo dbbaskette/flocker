@@ -143,7 +143,7 @@ func main() {
 		if !checkFileExists(basePath, id, "friends") {
 			writeIDsFile(getFriends(client, id), basePath, id, "friends")
 		}
-		if tmpCount1 > 5 {
+		if tmpCount1 > 20 {
 			break
 		}
 	}
@@ -166,9 +166,28 @@ func main() {
 		}
 	}
 
-	fmt.Println(len(currentFollowerIDs))
-	fmt.Println(len(currentFriendIDs))
+
+// Now, Check all friendIDs and check for that ID in the followers list. Store those as relations
+relationMap := make(map[int64]int)
+relationCount:=0
+for _,currentFriendID := range currentFriendIDs{
+	for _, currentFollowerID := range currentFollowerIDs{
+		if currentFriendID==currentFollowerID{
+			relationCount=relationMap[currentFriendID]+1
+			relationMap[currentFriendID]=relationCount
+		}
+
+	}
+}
 
 
+
+for k,v := range relationMap{
+	//fmt.Println(getUsername(client, k)+" : "+strconv.Itoa(v))
+	fmt.Println(getUsername(client, k)+" : "+strconv.FormatInt(k,10)+" : "+strconv.Itoa(v))
+
+}
+
+	
 
 }
