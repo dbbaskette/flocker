@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
 
-	//"net/http"
+	//	"strings"
+
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
 )
@@ -18,17 +20,23 @@ func check(e error) {
 	}
 }
 
-func twitterCheck(e error) bool {
+func twitterCheck(e error, r *http.Response) bool {
 	if e != nil {
 		if e.Error() == "twitter: 88 Rate limit exceeded" {
-			fmt.Println("You have hit the Twitter API Rate Limits. Pausing for 1 minute.")
+			resetEpochStr := r.Header.Values("X-rate-limit-reset")[0]
+			resetEpoch, _ := strconv.ParseInt(resetEpochStr, 10, 64)
+			resetDate := time.Unix(resetEpoch, 0)
+			currentDateStr := r.Header.Values("Date")[0]
+			currentDate, _ := time.Parse(time.RFC1123, currentDateStr)
+			delta := resetDate.Sub(currentDate)
+			fmt.Println("API Rate Limits Reached: Duration: ", delta)
 			time.Sleep(60 * time.Second)
-			return false
+			return true
 		} else {
 			panic(e)
 		}
 	}
-	return true
+	return false
 }
 
 func writeIDsFile(ids []int64, path string, userID int64, idType string) {
@@ -43,8 +51,8 @@ func writeIDsFile(ids []int64, path string, userID int64, idType string) {
 }
 
 func readIDsFile(path string, userID int64, idType string) []int64 {
-	fmt.Println("FUNCTION OUTPUT IDs File:  Read in File "+idType+" "+strconv.FormatInt(userID, 10))
-	idsFile, err := os.Open(path + "/" + strconv.FormatInt(userID, 10) + "-" + idType )
+	fmt.Println("FUNCTION OUTPUT IDs File:  Read in File " + idType + " " + strconv.FormatInt(userID, 10))
+	idsFile, err := os.Open(path + "/" + strconv.FormatInt(userID, 10) + "-" + idType)
 	check(err)
 	defer idsFile.Close()
 
@@ -61,29 +69,69 @@ func readIDsFile(path string, userID int64, idType string) []int64 {
 	return ids
 }
 
-func getFollowers(c *twitter.Client, id int64) []int64 {
-	retry := true
+//Adding Curson support to get users with more than 5k followers
+
+func getFollowers(c *twitter.Client, id int64, maxPages int) []int64 {
+	endIDs := false
+	var ids []int64
+	page := 0
 	var followerIDs *twitter.FollowerIDs
-	var err error
-	for ok := true; ok; ok = !retry {
-		followerIDs, _, err = c.Followers.IDs(&twitter.FollowerIDParams{UserID: id})
-		retry = twitterCheck(err)
+	cursorValue := int64(-1)
+	for !endIDs {
+		page++
+		retry := true
+		var err error
+		var resp *http.Response
+		for retry {
+			fmt.Println("Get Followers: Page " + strconv.Itoa(page))
+			followerIDs, resp, err = c.Followers.IDs(&twitter.FollowerIDParams{UserID: id, Cursor: cursorValue})
+			retry = twitterCheck(err, resp)
+		}
+		//Append all ids to larger list
+		ids = append(ids, followerIDs.IDs...)
+		// Once end of IDs stop
+		cursorValue = followerIDs.NextCursor
+		fmt.Printf("NextCursor: %d\n", followerIDs.NextCursor)
+		fmt.Printf("Page: %d    MaxPages: %d\n", page, maxPages)
+
+		if followerIDs.NextCursor <= 0 || (page >= maxPages && maxPages != -1) {
+			endIDs = true
+		}
 	}
-	return followerIDs.IDs
+	return ids
 }
 
-func getFriends(c *twitter.Client, id int64) []int64 {
-	retry := true
+func getFriends(c *twitter.Client, id int64, maxPages int) []int64 {
+	endIDs := false
+	var ids []int64
+	page := 0
 	var friendIDs *twitter.FriendIDs
-	var err error
-	for ok := true; ok; ok = !retry {
-		friendIDs, _, err = c.Friends.IDs(&twitter.FriendIDParams{UserID: id})
-		retry = twitterCheck(err)
+	cursorValue := int64(-1)
+	for !endIDs {
+		page++
+		retry := true
+		var err error
+		var resp *http.Response
+		for retry {
+			fmt.Println("Get Friends: Page " + strconv.Itoa(page))
+			friendIDs, resp, err = c.Friends.IDs(&twitter.FriendIDParams{UserID: id, Cursor: cursorValue})
+			retry = twitterCheck(err, resp)
+		}
+		//Append all ids to larger list
+		ids = append(ids, friendIDs.IDs...)
+		// Once end of IDs stop
+		cursorValue = friendIDs.NextCursor
+		fmt.Printf("NextCursor: %d\n", friendIDs.NextCursor)
+		fmt.Printf("Page: %d    MaxPages: %d\n", page, maxPages)
+
+		if friendIDs.NextCursor <= 0 || (page >= maxPages && maxPages != -1) {
+			endIDs = true
+		}
 	}
-	return friendIDs.IDs
+	return ids
 }
 
-func getUsername(c *twitter.Client, id int64) string{
+func getUsername(c *twitter.Client, id int64) string {
 	user, _, err := c.Users.Show(&twitter.UserShowParams{UserID: id})
 	check(err)
 	return user.ScreenName
@@ -108,86 +156,113 @@ func checkFileExists(path string, id int64, idType string) bool {
 
 }
 
-func main() {
+type EnvVars struct {
+	consumerSecret string
+	consumerKey    string
+	accessToken    string
+	accessSecret   string
+}
 
-	consumerSecret := os.Getenv("CONSUMER_SECRET")
-	consumerKey := os.Getenv("CONSUMER_KEY")
-	accessToken := os.Getenv("ACCESS_TOKEN")
-	accessSecret := os.Getenv("ACCESS_SECRET")
-	basePath := os.Getenv("BASE_PATH")
-	//twitterID := os.Getenv("TWITTER_ID")
+func getEnv() EnvVars {
+	var env EnvVars
+	env.consumerSecret = os.Getenv("CONSUMER_SECRET")
+	env.consumerKey = os.Getenv("CONSUMER_KEY")
+	env.accessToken = os.Getenv("ACCESS_TOKEN")
+	env.accessSecret = os.Getenv("ACCESS_SECRET")
+	return env
+}
+
+func twitterAuth() *twitter.Client {
 	fmt.Println("Logging In")
-
-	config := oauth1.NewConfig(consumerKey, consumerSecret)
-	token := oauth1.NewToken(accessToken, accessSecret)
+	env := getEnv()
+	config := oauth1.NewConfig(env.consumerKey, env.consumerSecret)
+	token := oauth1.NewToken(env.accessToken, env.accessSecret)
 	// OAuth1 http.Client will automatically authorize Requests
 	httpClient := config.Client(oauth1.NoContext, token)
 	client := twitter.NewClient(httpClient)
+	return client
+}
+
+func relationMapper(friendIDs []int64, followerIDs []int64, id int64) map[int64]int{
+	// Now, Check all friendIDs and check for that ID in the followers list. Store those as relations
+	relationMap := make(map[int64]int)
+	relationCount := 0
+	for _, friendID := range friendIDs {
+		for _, followerID := range followerIDs {
+			if friendID == followerID {
+				relationCount = relationMap[friendID] + 1
+				relationMap[friendID] = relationCount
+				fmt.Printf("MATCH - RELATION FOUND %i follows %i and they follow back\n",id, followerID)
+			}
+
+		}
+	}
+
+	return relationMap
+
+
+}
+
+func main() {
+	var client *twitter.Client
+	basePath := os.Getenv("BASE_PATH")
+	client = twitterAuth()
 	twitterID := getUserTwitterInfo(client)
 
-	writeIDsFile(getFollowers(client, twitterID), basePath, twitterID, "followers")
-	writeIDsFile(getFriends(client, twitterID), basePath, twitterID, "friends")
+	writeIDsFile(getFollowers(client, twitterID, -1), basePath, twitterID, "followers")
+	writeIDsFile(getFriends(client, twitterID, -1), basePath, twitterID, "friends")
 
 	fmt.Println(checkFileExists(basePath, twitterID, "followers"))
 
 	// NOW CREATE FOLLOWER FILES (limit to 5 temporarily)
-
+	runCount := 75
 	followerIDs := readIDsFile(basePath, twitterID, "followers")
 	tmpCount1 := 0
 	for _, id := range followerIDs {
 		fmt.Println("Creating Follower/Friend Files")
 		tmpCount1++
 		if !checkFileExists(basePath, id, "followers") {
-			writeIDsFile(getFollowers(client, id), basePath, id, "followers")
+			writeIDsFile(getFollowers(client, id, -1), basePath, id, "followers")
 		}
 		if !checkFileExists(basePath, id, "friends") {
-			writeIDsFile(getFriends(client, id), basePath, id, "friends")
+			writeIDsFile(getFriends(client, id, -1), basePath, id, "friends")
 		}
-		if tmpCount1 > 20 {
+		if tmpCount1 > runCount {
 			break
 		}
 	}
 
+	//os.Exit(1)
 	// Read in each set of files and look for X in y file and y in x file.  That will
 	// be a relation.
 
 	//followerIDs := readIDsFile(basePath, twitterID, "followers")
-	
+
 	var currentFollowerIDs []int64
 	var currentFriendIDs []int64
-	tmpCount1 = 0
+	tmpCount1=0
 	for _, id := range followerIDs {
 		tmpCount1++
-		fmt.Println(getUsername(client,id)) 
+
+		//fmt.Println(getUsername(client, id))
 		currentFollowerIDs = readIDsFile(basePath, id, "followers")
 		currentFriendIDs = readIDsFile(basePath, id, "friends")
-		if tmpCount1 > 5 {
+
+		relationMapper(currentFriendIDs,currentFollowerIDs,id)
+
+		if tmpCount1 > runCount {
 			break
 		}
 	}
 
 
-// Now, Check all friendIDs and check for that ID in the followers list. Store those as relations
-relationMap := make(map[int64]int)
-relationCount:=0
-for _,currentFriendID := range currentFriendIDs{
-	for _, currentFollowerID := range currentFollowerIDs{
-		if currentFriendID==currentFollowerID{
-			relationCount=relationMap[currentFriendID]+1
-			relationMap[currentFriendID]=relationCount
-		}
-
-	}
-}
 
 
+	//relationMap:=relationMapper(currentFriendIDs,currentFollowerIDs)
 
-for k,v := range relationMap{
-	//fmt.Println(getUsername(client, k)+" : "+strconv.Itoa(v))
-	fmt.Println(getUsername(client, k)+" : "+strconv.FormatInt(k,10)+" : "+strconv.Itoa(v))
+	// for k, v := range relationMap {
+	// 	fmt.Println(strconv.FormatInt(k, 10) + "," + strconv.Itoa(v))
 
-}
-
-	
+	// }
 
 }
