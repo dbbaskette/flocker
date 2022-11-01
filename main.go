@@ -131,12 +131,12 @@ func getFriends(c *twitter.Client, id int64, maxPages int) []int64 {
 	return ids
 }
 
-func getUsername(c *twitter.Client, id int64) string {
-	user, _, err := c.Users.Show(&twitter.UserShowParams{UserID: id})
-	check(err)
-	return user.ScreenName
+// func getUsername(c *twitter.Client, id int64) string {
+// 	user, _, err := c.Users.Show(&twitter.UserShowParams{UserID: id})
+// 	check(err)
+// 	return user.ScreenName
 
-}
+// }
 
 func getUserTwitterInfo(c *twitter.Client) int64 {
 	user, _, err := c.Accounts.VerifyCredentials(&twitter.AccountVerifyParams{})
@@ -146,7 +146,9 @@ func getUserTwitterInfo(c *twitter.Client) int64 {
 }
 
 func checkFileExists(path string, id int64, idType string) bool {
-	if info, err := os.Stat(path + "/" + strconv.FormatInt(id, 10) + "-" + idType); err == nil && info.Size() > 0 {
+	//if info, err := os.Stat(path + "/" + strconv.FormatInt(id, 10) + "-" + idType); err == nil && info.Size() > 0 {
+	if _, err := os.Stat(path + "/" + strconv.FormatInt(id, 10) + "-" + idType); err == nil {
+
 		check(err)
 		fmt.Printf(path + "/" + strconv.FormatInt(id, 10) + "-" + idType + " File exists; skipping\n")
 		return true
@@ -183,26 +185,61 @@ func twitterAuth() *twitter.Client {
 	return client
 }
 
-func relationMapper(rm map[int64]int, friendIDs []int64, followerIDs []int64, id int64) map[int64]int{
+func relationMapper(rm map[int64]int, friendIDs []int64, followerIDs []int64, id int64) map[int64]int {
 
 	// For a given follower of the users, this will loop through all their followers and friends
 	// If someone is a follower and a friend they are a relation and get counted
-	
-	
+	fmt.Println("Updating Relations Map")
 	relationCount := 0
 	for _, friendID := range friendIDs {
 		for _, followerID := range followerIDs {
 			if friendID == followerID {
 				relationCount = rm[friendID] + 1
 				rm[friendID] = relationCount
-				
+
 			}
 
 		}
 	}
+	fmt.Println("Updated Relations Map")
 
 	return rm
 
+}
+
+
+
+func followUsers(ids []int64, followerIDs []int64, c *twitter.Client) {
+	var err error
+	var user *twitter.User
+	var currentFollow bool
+	retry := true
+	for _, id := range ids {
+		retry=true
+		for retry {
+			fmt.Println("Following ", id)
+			currentFollow = false
+			for _, followerID := range followerIDs {
+				if id == followerID {
+					currentFollow = true
+					fmt.Println("This user is already followed, skipping.")
+					retry=false
+					break
+				}
+			}
+			if !currentFollow {
+				user, _, err = c.Friendships.Create(&twitter.FriendshipCreateParams{UserID: id})
+				if err != nil {
+					fmt.Println(err)
+					time.Sleep(60 * time.Second)
+					retry=true
+				} else {
+					fmt.Println("Followed ", user.Name)
+					retry=false
+				}
+			}
+		}
+	}
 
 }
 
@@ -212,23 +249,29 @@ func main() {
 	client = twitterAuth()
 	twitterID := getUserTwitterInfo(client)
 
+	// Check for existence of files and offer a choice
+/* 	if !checkFileExists(basePath, twitterID, "followers") {
+		fmt.Println("No Followers found for ", twitterID)
+		writeIDsFile(getFollowers(client, twitterID, -1), basePath, twitterID, "followers")
+		writeIDsFile(getFriends(client, twitterID, -1), basePath, twitterID, "friends")
+	} */
+
 	writeIDsFile(getFollowers(client, twitterID, -1), basePath, twitterID, "followers")
 	writeIDsFile(getFriends(client, twitterID, -1), basePath, twitterID, "friends")
 
-	fmt.Println(checkFileExists(basePath, twitterID, "followers"))
-
-	// NOW CREATE FOLLOWER FILES (limit to 5 temporarily)
-	runCount := 150
+	// NOW CREATE FOLLOWER FILES
+	runCount := 500
 	followerIDs := readIDsFile(basePath, twitterID, "followers")
 	tmpCount1 := 0
 	for _, id := range followerIDs {
 		fmt.Println("Creating Follower/Friend Files")
 		tmpCount1++
+		fmt.Println("FF File Counter: ", tmpCount1)
 		if !checkFileExists(basePath, id, "followers") {
-			writeIDsFile(getFollowers(client, id, -1), basePath, id, "followers")
+			writeIDsFile(getFollowers(client, id, 10), basePath, id, "followers")
 		}
 		if !checkFileExists(basePath, id, "friends") {
-			writeIDsFile(getFriends(client, id, -1), basePath, id, "friends")
+			writeIDsFile(getFriends(client, id, 10), basePath, id, "friends")
 		}
 		if tmpCount1 > runCount {
 			break
@@ -243,36 +286,33 @@ func main() {
 
 	var currentFollowerIDs []int64
 	var currentFriendIDs []int64
-	tmpCount1=0
-	relationMap := make(map[int64]int)  
+	tmpCount1 = 0
+	relationMap := make(map[int64]int)
 	for _, id := range followerIDs {
 		tmpCount1++
 
 		// FOr each one of my followers get their follower and friend list and send to the mapper
-		
+
 		currentFollowerIDs = readIDsFile(basePath, id, "followers")
 		currentFriendIDs = readIDsFile(basePath, id, "friends")
 
-		relationMap=relationMapper(relationMap,currentFriendIDs,currentFollowerIDs,id)
+		relationMap = relationMapper(relationMap, currentFriendIDs, currentFollowerIDs, id)
 
 		if tmpCount1 > runCount {
 			break
 		}
 	}
-	
-	for k,v := range relationMap{
 
-		fmt.Println(k,v)
+	var followList []int64
+	for k, v := range relationMap {
+
+		fmt.Printf("%d,%d\n", k, v)
+		if v > 20 {
+			fmt.Printf("Sending %s to Auto-follower because they have %d relationships", k, v)
+			followList = append(followList, k)
+		}
 
 	}
-
-
-
-	//relationMap:=relationMapper(currentFriendIDs,currentFollowerIDs)
-
-	// for k, v := range relationMap {
-	// 	fmt.Println(strconv.FormatInt(k, 10) + "," + strconv.Itoa(v))
-
-	// }
+	followUsers(followList, followerIDs, client)
 
 }
