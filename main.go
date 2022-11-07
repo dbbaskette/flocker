@@ -207,15 +207,13 @@ func relationMapper(rm map[int64]int, friendIDs []int64, followerIDs []int64, id
 
 }
 
-
-
 func followUsers(ids []int64, followerIDs []int64, c *twitter.Client) {
 	var err error
 	var user *twitter.User
 	var currentFollow bool
 	retry := true
 	for _, id := range ids {
-		retry=true
+		retry = true
 		for retry {
 			fmt.Println("Following ", id)
 			currentFollow = false
@@ -223,7 +221,7 @@ func followUsers(ids []int64, followerIDs []int64, c *twitter.Client) {
 				if id == followerID {
 					currentFollow = true
 					fmt.Println("This user is already followed, skipping.")
-					retry=false
+					retry = false
 					break
 				}
 			}
@@ -232,15 +230,47 @@ func followUsers(ids []int64, followerIDs []int64, c *twitter.Client) {
 				if err != nil {
 					fmt.Println(err)
 					time.Sleep(60 * time.Second)
-					retry=true
+					retry = true
 				} else {
 					fmt.Println("Followed ", user.Name)
-					retry=false
+					retry = false
 				}
 			}
 		}
 	}
 
+}
+
+func botCleanup(ids []int64, c *twitter.Client, path string, twitterID int64) []int64 {
+	var err error
+	var user *twitter.User
+	var resp *http.Response
+	//var startDate time.Time
+	var bot twitter.User
+	var retry bool
+	//cutoffDate := time.Now().Add(-time.Hour * 24 * 14)
+	for i, id := range ids {
+		retry=true
+		for retry {
+			user, resp, err = c.Users.Show(&twitter.UserShowParams{UserID: id})
+			retry = twitterCheck(err, resp)
+		}
+
+		//startDate, err = time.Parse(time.RubyDate, user.CreatedAt)
+		//check(err)
+		//		if cutoffDate.Before(startDate) && user.StatusesCount=0{
+		fmt.Println(id," : "+strconv.Itoa(user.StatusesCount))
+		if user.StatusesCount==0{
+			fmt.Println("Found a Bot: ", id)
+			bot, resp, err = c.Blocks.Create(&twitter.BlockCreateParams{UserID: id})
+			twitterCheck(err, resp)
+			fmt.Println("Blocked Bot: ", bot.ScreenName)
+			ids = append(ids[:i], ids[i+1:]...)
+		}
+
+	}
+	//func writeIDsFile(ids []int64, path string, userID int64, idType string) {
+	return ids
 }
 
 func main() {
@@ -250,7 +280,7 @@ func main() {
 	twitterID := getUserTwitterInfo(client)
 
 	// Check for existence of files and offer a choice
-/* 	if !checkFileExists(basePath, twitterID, "followers") {
+	/* 	if !checkFileExists(basePath, twitterID, "followers") {
 		fmt.Println("No Followers found for ", twitterID)
 		writeIDsFile(getFollowers(client, twitterID, -1), basePath, twitterID, "followers")
 		writeIDsFile(getFriends(client, twitterID, -1), basePath, twitterID, "friends")
@@ -263,6 +293,9 @@ func main() {
 	runCount := 500
 	followerIDs := readIDsFile(basePath, twitterID, "followers")
 	tmpCount1 := 0
+
+	followerIDs = botCleanup(followerIDs, client, basePath, twitterID)
+
 	for _, id := range followerIDs {
 		fmt.Println("Creating Follower/Friend Files")
 		tmpCount1++
