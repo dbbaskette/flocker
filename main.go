@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	//	"strings"
@@ -185,7 +186,7 @@ func twitterAuth() *twitter.Client {
 	return client
 }
 
-func relationMapper(rm map[int64]int, friendIDs []int64, followerIDs []int64, id int64) map[int64]int {
+func relationMapper(rm map[int64]int, friendIDs []int64, followerIDs []int64) map[int64]int {
 
 	// For a given follower of the users, this will loop through all their followers and friends
 	// If someone is a follower and a friend they are a relation and get counted
@@ -193,10 +194,11 @@ func relationMapper(rm map[int64]int, friendIDs []int64, followerIDs []int64, id
 	relationCount := 0
 	for _, friendID := range friendIDs {
 		for _, followerID := range followerIDs {
+			rm[friendID] = 0
 			if friendID == followerID {
 				relationCount = rm[friendID] + 1
 				rm[friendID] = relationCount
-
+				break
 			}
 
 		}
@@ -250,7 +252,7 @@ func botCleanup(ids []int64, c *twitter.Client, path string, twitterID int64) []
 	var retry bool
 	//cutoffDate := time.Now().Add(-time.Hour * 24 * 14)
 	for i, id := range ids {
-		retry=true
+		retry = true
 		for retry {
 			user, resp, err = c.Users.Show(&twitter.UserShowParams{UserID: id})
 			retry = twitterCheck(err, resp)
@@ -259,8 +261,8 @@ func botCleanup(ids []int64, c *twitter.Client, path string, twitterID int64) []
 		//startDate, err = time.Parse(time.RubyDate, user.CreatedAt)
 		//check(err)
 		//		if cutoffDate.Before(startDate) && user.StatusesCount=0{
-		fmt.Println(id," : "+strconv.Itoa(user.StatusesCount))
-		if user.StatusesCount==0{
+		fmt.Println(id, " : "+strconv.Itoa(user.StatusesCount))
+		if user.StatusesCount == 0 {
 			fmt.Println("Found a Bot: ", id)
 			bot, resp, err = c.Blocks.Create(&twitter.BlockCreateParams{UserID: id})
 			twitterCheck(err, resp)
@@ -273,11 +275,50 @@ func botCleanup(ids []int64, c *twitter.Client, path string, twitterID int64) []
 	return ids
 }
 
+func noRelationshipsCheck(c *twitter.Client, followerIDs []int64, friendIDs []int64) {
+	var err error
+	var user *twitter.User
+
+	var resp *http.Response
+
+	personalRelationsMap := relationMapper(make(map[int64]int), friendIDs, followerIDs)
+	retry := false
+	retry2 := false
+
+	for id, v := range personalRelationsMap {
+		if v == 0 {
+			retry = true
+			for retry {
+				user, resp, err = c.Users.Show(&twitter.UserShowParams{UserID: id})
+				retry = twitterCheck(err, resp)
+				fmt.Printf("%s does not follow you back. \n", user.ScreenName)
+				if strings.Contains(strings.ToUpper(user.Description), "CRYPTO") || strings.Contains(strings.ToUpper(user.Description), "NFT") || strings.Contains(strings.ToUpper(user.Description), " AI ") ||
+					strings.Contains(strings.ToUpper(user.Description), "#AI") ||
+					strings.Contains(strings.ToUpper(user.Description), "AI/ML") || strings.Contains(strings.ToUpper(user.Description), "ARTIFICIAL INTELLIGENCE")  || 
+					strings.Contains(strings.ToUpper(user.Description), "GOVSHOP") || strings.Contains(strings.ToUpper(user.Description), "#MARKETING")  ||
+					strings.Contains(strings.ToUpper(user.Description), "BITCOIN") || strings.Contains(strings.ToUpper(user.Description), "#CLIMATE")  ||
+					strings.Contains(strings.ToUpper(user.Description), "SEO") || strings.Contains(strings.ToUpper(user.Description), "THOUGHT LEADER")  ||
+					strings.Contains(strings.ToUpper(user.Description), "#STARTUPS") || strings.Contains(strings.ToUpper(user.Description), "#5G")  ||
+					strings.Contains(strings.ToUpper(user.Description), "BLOCKCHAIN") &&
+					!retry {
+					retry2 = true
+					for retry2 {
+						_, resp, err = c.Blocks.Create(&twitter.BlockCreateParams{UserID: id})
+						retry2 = twitterCheck(err, resp)
+					}
+					fmt.Println("************************************* Account Blocked: ", user.ScreenName)
+				}
+			}
+		}
+	}
+
+}
+
 func main() {
 	var client *twitter.Client
 	basePath := os.Getenv("BASE_PATH")
 	client = twitterAuth()
-	twitterID := getUserTwitterInfo(client)
+	twitterID := getUserTwitterInbirdbathfo(client)
 
 	// Check for existence of files and offer a choice
 	/* 	if !checkFileExists(basePath, twitterID, "followers") {
@@ -292,9 +333,14 @@ func main() {
 	// NOW CREATE FOLLOWER FILES
 	runCount := 500
 	followerIDs := readIDsFile(basePath, twitterID, "followers")
-	tmpCount1 := 0
+	friendIDs := readIDsFile(basePath, twitterID, "friends")
 
-	followerIDs = botCleanup(followerIDs, client, basePath, twitterID)
+	noRelationshipsCheck(client, followerIDs, friendIDs)
+
+	panic(0)
+
+	//followerIDs = botCleanup(followerIDs, client, basePath, twitterID)
+	tmpCount1 := 0
 
 	for _, id := range followerIDs {
 		fmt.Println("Creating Follower/Friend Files")
@@ -329,7 +375,7 @@ func main() {
 		currentFollowerIDs = readIDsFile(basePath, id, "followers")
 		currentFriendIDs = readIDsFile(basePath, id, "friends")
 
-		relationMap = relationMapper(relationMap, currentFriendIDs, currentFollowerIDs, id)
+		relationMap = relationMapper(relationMap, currentFriendIDs, currentFollowerIDs)
 
 		if tmpCount1 > runCount {
 			break
@@ -341,7 +387,7 @@ func main() {
 
 		fmt.Printf("%d,%d\n", k, v)
 		if v > 20 {
-			fmt.Printf("Sending %s to Auto-follower because they have %d relationships", k, v)
+			fmt.Printf("Sending %v to Auto-follower because they have %d relationships", k, v)
 			followList = append(followList, k)
 		}
 
