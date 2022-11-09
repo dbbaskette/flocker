@@ -297,7 +297,7 @@ func noRelationshipsCheck(c *twitter.Client, followerIDs []int64, friendIDs []in
 					strings.Contains(strings.ToUpper(user.Description), "AI/ML") || strings.Contains(strings.ToUpper(user.Description), "ARTIFICIAL INTELLIGENCE")  || 
 					strings.Contains(strings.ToUpper(user.Description), "GOVSHOP") || strings.Contains(strings.ToUpper(user.Description), "#MARKETING")  ||
 					strings.Contains(strings.ToUpper(user.Description), "BITCOIN") || strings.Contains(strings.ToUpper(user.Description), "#CLIMATE")  ||
-					strings.Contains(strings.ToUpper(user.Description), "SEO") || strings.Contains(strings.ToUpper(user.Description), "THOUGHT LEADER")  ||
+					strings.Contains(strings.ToUpper(user.Description), "THOUGHT LEADER")  ||
 					strings.Contains(strings.ToUpper(user.Description), "#STARTUPS") || strings.Contains(strings.ToUpper(user.Description), "#5G")  ||
 					strings.Contains(strings.ToUpper(user.Description), "BLOCKCHAIN") &&
 					!retry {
@@ -334,12 +334,18 @@ func main() {
 	runCount := 500
 	followerIDs := readIDsFile(basePath, twitterID, "followers")
 	friendIDs := readIDsFile(basePath, twitterID, "friends")
+    argsWithoutProg := (os.Args[1:])[0]
 
-	noRelationshipsCheck(client, followerIDs, friendIDs)
+	if  argsWithoutProg == "removeusers"{
+		fmt.Println("** REMOVE USERS CALLED ** ")
+		noRelationshipsCheck(client, followerIDs, friendIDs)
+		followerIDs = botCleanup(followerIDs, client, basePath, twitterID)
+		os.Exit(1)
 
-	panic(0)
+	}
 
-	//followerIDs = botCleanup(followerIDs, client, basePath, twitterID)
+
+
 	tmpCount1 := 0
 
 	for _, id := range followerIDs {
