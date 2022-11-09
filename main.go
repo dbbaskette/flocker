@@ -318,7 +318,7 @@ func main() {
 	var client *twitter.Client
 	basePath := os.Getenv("BASE_PATH")
 	client = twitterAuth()
-	twitterID := getUserTwitterInbirdbathfo(client)
+	twitterID := getUserTwitterInfo(client)
 
 	// Check for existence of files and offer a choice
 	/* 	if !checkFileExists(basePath, twitterID, "followers") {
